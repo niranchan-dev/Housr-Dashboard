@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Housr Analytics</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+<?!= include('Styles'); ?>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+</head>
+<body data-theme="light" data-build="v8.2">
+
+<div class="app">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">H</div>
+      <div>
+        <div class="brand-title">Housr</div>
+        <div class="brand-sub">Analytics Suite</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a href="#" class="nav-item active" data-page="dashboard"><span>🏠</span> Dashboard<kbd>1</kbd></a>
+      <a href="#" class="nav-item" data-page="occupancy"><span>🛏️</span> Occupancy<kbd>2</kbd></a>
+      <a href="#" class="nav-item" data-page="shortstay"><span>🏨</span> Short Stay<kbd>3</kbd></a>
+      <a href="#" class="nav-item" data-page="lssales"><span>💼</span> LS Sales<kbd>4</kbd></a>
+      <a href="#" class="nav-item" data-page="properties"><span>🏢</span> Property View<kbd>5</kbd></a>
+      <a href="#" class="nav-item" data-page="mapping"><span>⚙️</span> Mapping</a>
+      <a href="#" class="nav-item" data-page="audit"><span>📋</span> Audit Log</a>
+      <a href="#" class="nav-item" data-page="debug"><span>🔧</span> Debug</a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-pill" id="userPill"></div>
+      <div class="shortcut-hint">Press <kbd>?</kbd> for shortcuts</div>
+      <button class="btn btn-ghost" id="themeToggle">🌓 Toggle Theme</button>
+      <button class="btn btn-primary" id="refreshBtn">↻ Refresh Data</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn">☰</button>
+      <div class="page-title-wrap">
+        <span class="page-title" id="pageTitle">Dashboard Overview</span>
+        <span class="pill" id="currentMonthPill">Loading…</span>
+      </div>
+      <div class="topbar-right">
+        <span class="muted" id="lastUpdated">Loading…</span>
+      </div>
+    </header>
+
+    <div id="errorBanner" class="error-banner hidden"></div>
+
+    <section class="filters card" id="filterBar">
+      <div class="filter"><label>City</label><div class="ms" data-filter="city" data-placeholder="All Cities"></div></div>
+      <div class="filter"><label>Property</label><div class="ms" data-filter="property" data-placeholder="All Properties"></div></div>
+      <div class="filter"><label>Property Type</label><div class="ms" data-filter="ptype" data-placeholder="All Types"></div></div>
+      <div class="filter"><label>Occupancy Type</label><div class="ms" data-filter="occ" data-placeholder="All Occupancy"></div></div>
+      <div class="filter filter-actions"><button class="btn btn-ghost" id="clearFilters">Clear All</button></div>
+    </section>
+
+    <div id="activeFilterChips" class="active-filter-chips hidden"></div>
+
+    <!-- ============== DASHBOARD (v8.2 BENTO LAYOUT) ============== -->
+    <section class="page" id="page-dashboard">
+
+      <!-- HERO: Big Total Revenue + 3 inline secondaries -->
+      <div class="hero-card" id="heroDashboard">
+        <div>
+          <div class="hero-label">Total Revenue</div>
+          <div class="hero-value" id="heroTotalRev">—</div>
+          <div class="hero-sub" id="heroTotalSub"></div>
+        </div>
+        <div class="hero-secondary">
+          <div class="hero-label">Long Stay</div>
+          <div class="hero-value" id="heroLSRev">—</div>
+          <div class="hero-sub" id="heroLSSub"></div>
+        </div>
+        <div class="hero-secondary">
+          <div class="hero-label">Short Stay</div>
+          <div class="hero-value" id="heroSSRev">—</div>
+          <div class="hero-sub" id="heroSSSub"></div>
+        </div>
+        <div class="hero-secondary">
+          <div class="hero-label">Properties</div>
+          <div class="hero-value" id="heroProps">—</div>
+          <div class="hero-sub" id="heroPropsSub"></div>
+        </div>
+      </div>
+
+      <!-- 3 compact KPIs in the bento row -->
+      <div class="bento">
+        <div class="kpi cell-4 purple">
+          <div class="kpi-label">Long Stay Occupancy</div>
+          <div class="kpi-value" id="kpiLSOcc">—</div>
+          <div class="kpi-sub" id="kpiLSOccSub"></div>
+        </div>
+        <div class="kpi cell-4 cyan">
+          <div class="kpi-label">Long + Short Occupancy</div>
+          <div class="kpi-value" id="kpiBlendedOcc">—</div>
+          <div class="kpi-sub" id="kpiBlendedOccSub"></div>
+        </div>
+        <div class="kpi cell-4 amber">
+          <div class="kpi-label">Avg Tenure</div>
+          <div class="kpi-value" id="kpiAvgTenure">—</div>
+          <div class="kpi-sub" id="kpiAvgTenureSub"></div>
+        </div>
+      </div>
+
+      <!-- Bento: Revenue by City (wide) + Occupancy donut (narrow) -->
+      <div class="bento">
+        <div class="card cell-8">
+          <div class="card-head"><h3>Revenue by City</h3><span class="muted">Long Stay + Short Stay (current month)</span></div>
+          <div class="chart-wrap"><canvas id="chartRevCity"></canvas></div>
+        </div>
+        <div class="card cell-4">
+          <div class="card-head"><h3>Beds Occupied by City</h3></div>
+          <div class="chart-wrap"><canvas id="chartBedsCity"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Target vs Achieved full-width -->
+      <div class="card">
+        <div class="card-head">
+          <h3>Target vs Achieved by City</h3>
+          <span class="muted">Dashboard!X (Target) vs Dashboard!AC (Achieved) • current month</span>
+        </div>
+        <div class="chart-wrap" style="height: 380px"><canvas id="chartTargetAchieved"></canvas></div>
+      </div>
+
+      <!-- Bottom 10 -->
+      <div class="card">
+        <div class="card-head">
+          <h3>Bottom 10 Properties by Occupancy %</h3>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="muted">Pan-India • not affected by filters</span>
+            <button class="btn btn-ghost btn-sm" data-export="#bottom10Table" data-filename="bottom10-properties.csv">⬇ CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="bottom10Table">
+            <thead><tr><th>#</th><th>Property</th><th>City</th><th>Type</th><th class="num">Sellable</th><th class="num">Occupied</th><th class="num">Short Occupied</th><th class="num">Occ %</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== OCCUPANCY ============== -->
+    <section class="page hidden" id="page-occupancy">
+      <div class="kpi-grid" id="kpiOccupancy"></div>
+      <div class="grid-2">
+        <!-- v8.2: PIE chart instead of bar -->
+        <div class="card"><div class="card-head"><h3>Vacant Beds by City</h3><span class="muted">Share of total vacant</span></div><div class="chart-wrap-pie"><canvas id="chartVacantCity"></canvas></div></div>
+        <!-- v8.2: PIE chart for Coliving vs Homes (split by sellable) -->
+        <div class="card"><div class="card-head"><h3>Coliving vs Homes</h3><span class="muted">Sellable beds share</span></div><div class="chart-wrap-pie"><canvas id="chartColHomes"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Top 15 Properties by Occupancy %</h3>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="muted">Leaderboard (min 3 sellable beds) • includes Short Occupied</span>
+            <button class="btn btn-ghost btn-sm" data-export="#top15Table" data-filename="top15-properties.csv">⬇ CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <!-- v8.2: added Short Occupied column -->
+          <table class="data-table" id="top15Table">
+            <thead><tr><th>#</th><th>Property</th><th>City</th><th>Type</th><th class="num">Sellable</th><th class="num">Occupied</th><th class="num">Short Occupied</th><th class="num">Occ %</th><th>Trend</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== SHORT STAY (v8.2 Clear button removed) ============== -->
+    <section class="page hidden" id="page-shortstay">
+      <section class="filters card">
+        <div class="filter" style="grid-column: span 4">
+          <label>Months (multi-select)</label>
+          <div class="ms" data-filter="ssMonths" data-placeholder="Default = current month"></div>
+        </div>
+      </section>
+
+      <div class="kpi-grid kpi-6" id="kpiShortStay"></div>
+      <div class="card"><div class="card-head"><h3>FTD — Source × City</h3><span class="muted" id="ftdSub"></span></div><div class="table-wrap" id="ftdTableWrap"></div></div>
+      <div class="card"><div class="card-head"><h3>MTD — Source × City</h3><span class="muted" id="mtdSub"></span></div><div class="table-wrap" id="mtdTableWrap"></div></div>
+      <div class="card"><div class="card-head"><h3>YTD — Source × City</h3><span class="muted" id="ytdSub"></span></div><div class="table-wrap" id="ytdTableWrap"></div></div>
+    </section>
+
+    <!-- ============== LS SALES (v8.2 flex filter row, toggle on right) ============== -->
+    <section class="page hidden" id="page-lssales">
+      <section class="filters-ls">
+        <div class="filter"><label>Month of Sale</label><div class="ms" data-filter="lsMonth" data-placeholder="All Months"></div></div>
+        <div class="filter"><label>City</label><div class="ms" data-filter="lsCity" data-placeholder="All Cities"></div></div>
+        <div class="filter"><label>Source</label><div class="ms" data-filter="lsSource" data-placeholder="All Sources"></div></div>
+        <div class="filter"><label>Property</label><div class="ms" data-filter="lsProperty" data-placeholder="All Properties"></div></div>
+        <div class="filter-actions">
+          <div class="toggle-group" id="lsMetricToggle">
+            <button data-m="value" class="active">Sales Value</button>
+            <button data-m="prorated">Prorated Rent</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="kpi-grid" id="kpiLSSales"></div>
+      <div class="card"><div class="card-head"><h3>FTD — Source × City</h3><span class="muted" id="lsFtdSub"></span></div><div class="table-wrap" id="lsFtdTableWrap"></div></div>
+      <div class="card"><div class="card-head"><h3>MTD — Source × City</h3><span class="muted" id="lsMtdSub"></span></div><div class="table-wrap" id="lsMtdTableWrap"></div></div>
+      <div class="card"><div class="card-head"><h3>YTD — Source × City</h3><span class="muted" id="lsYtdSub"></span></div><div class="table-wrap" id="lsYtdTableWrap"></div></div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3>Owner-wise Sales</h3>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="muted" id="ownerSub"></span>
+              <button class="btn btn-ghost btn-sm" data-export="#ownerTable" data-filename="owner-sales.csv">⬇ CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="ownerTable">
+              <thead><tr><th>#</th><th>Owner</th><th class="num">Beds Sold</th><th class="num">Sales Value</th><th class="num">Prorated Rent</th><th>Share</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- v8.2: PIE chart for Beds Sold by City -->
+        <div class="card"><div class="card-head"><h3>Beds Sold by City</h3><span class="muted">Share of MTD beds sold</span></div><div class="chart-wrap-pie"><canvas id="chartLsBedsCity"></canvas></div></div>
+      </div>
+    </section>
+    
+    <!-- ============== PROPERTY VIEW (PROPERTIES) ============== -->
+    <section class="page hidden" id="page-properties">
+      <div class="prop-header-card card">
+        <div class="prop-header-left">
+          <label for="propAircraftSelect">Select Property</label>
+          <select id="propAircraftSelect" class="btn btn-ghost">
+            <option value="">Loading properties...</option>
+          </select>
+          <span id="propSummaryTotals" class="prop-totals"></span>
+        </div>
+        <div id="propStatusCounts" class="prop-badges">
+          <!-- Counts will render here -->
+        </div>
+      </div>
+      <div class="card full-width" style="padding: 24px; min-height: 400px; margin-top: 16px;">
+        <div class="aircraft-grid" id="aircraftGrid">
+          <div class="muted" style="text-align: center; padding: 40px;">Select a property to view its room layout.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== MAPPING ============== -->
+    <section class="page hidden" id="page-mapping">
+      <div class="card">
+        <div class="card-head">
+          <h3>Mapping Configuration</h3>
+          <div>
+            <button class="btn btn-ghost" id="resetMapping">⟲ Reset to Defaults</button>
+            <button class="btn btn-ghost" id="addMappingRow">+ Add Row</button>
+            <button class="btn btn-primary" id="saveMapping">💾 Save</button>
+          </div>
+        </div>
+        <p class="muted small">Edit metric → column mapping. <strong>Reset to Defaults</strong> wipes and re-seeds.</p>
+        <div class="table-wrap">
+          <table class="data-table" id="mapTable">
+            <thead><tr><th>Metric</th><th>Sheet</th><th>Column</th><th>Type</th><th>Notes</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Logic Reference (Sheet10)</h3><span class="muted">Read-only snapshot</span></div>
+        <div class="table-wrap" id="logicWrap"><div class="muted">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- ============== AUDIT LOG ============== -->
+    <section class="page hidden" id="page-audit">
+      <section class="filters card">
+        <div class="filter">
+          <label>From Date</label>
+          <input type="date" id="auditFrom" class="audit-date">
+        </div>
+        <div class="filter">
+          <label>To Date</label>
+          <input type="date" id="auditTo" class="audit-date">
+        </div>
+        <div class="filter" style="grid-column: span 2">
+          <label>Search by email or name</label>
+          <input type="text" id="auditSearch" class="audit-search" placeholder="e.g. niranchan or @housr">
+        </div>
+        <div class="filter filter-actions">
+          <button class="btn btn-primary" id="auditApply">Apply</button>
+          <button class="btn btn-ghost" id="auditClear">Clear</button>
+        </div>
+      </section>
+
+      <div class="kpi-grid kpi-3" id="kpiAudit"></div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3>Top Users</h3>
+            <span class="muted">By access count in selected range</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="topUsersTable">
+              <thead><tr><th>#</th><th>Email</th><th class="num">Accesses</th><th>Share</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Daily Access Count</h3></div>
+          <div class="chart-wrap"><canvas id="chartAuditDaily"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Access Log</h3>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="muted" id="auditCountSub"></span>
+            <button class="btn btn-ghost btn-sm" data-export="#auditTable" data-filename="audit-log.csv">⬇ CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="auditTable">
+            <thead><tr><th>#</th><th>Timestamp</th><th>Email</th><th>Display Name</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== DEBUG ============== -->
+    <section class="page hidden" id="page-debug">
+      <div class="card">
+        <div class="card-head">
+          <h3>Debug & Diagnostics</h3>
+          <button class="btn btn-primary" id="runDiag">▶ Run Diagnose</button>
+        </div>
+        <p class="muted small">Verifies source access, mapping resolution, parsed row counts.</p>
+        <pre id="diagOut" style="background:var(--surface-2);padding:14px;border-radius:8px;max-height:600px;overflow:auto;font-size:12px;white-space:pre-wrap;color:var(--text)">Click "Run Diagnose" to begin…</pre>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Current Bundle Summary</h3></div>
+        <pre id="bundleOut" style="background:var(--surface-2);padding:14px;border-radius:8px;max-height:400px;overflow:auto;font-size:12px;white-space:pre-wrap;color:var(--text)"></pre>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="loader" id="loader"><div class="spinner"></div><div>Loading…</div></div>
+
+<!-- Keyboard Shortcuts Help Modal -->
+<div id="shortcutsModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>⌨️ Keyboard Shortcuts</h3>
+      <button class="close-modal-btn" id="closeShortcutsBtn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="shortcut-list">
+        <div class="shortcut-row"><kbd>1</kbd><span>Navigate to Dashboard Overview</span></div>
+        <div class="shortcut-row"><kbd>2</kbd><span>Navigate to Occupancy View</span></div>
+        <div class="shortcut-row"><kbd>3</kbd><span>Navigate to Short Stay Analytics</span></div>
+        <div class="shortcut-row"><kbd>4</kbd><span>Navigate to Long Stay Sales</span></div>
+        <div class="shortcut-row"><kbd>R</kbd><span>Force Refresh Data</span></div>
+        <div class="shortcut-row"><kbd>T</kbd><span>Toggle Light/Dark Theme</span></div>
+        <div class="shortcut-row"><kbd>?</kbd><span>Open Shortcuts Help</span></div>
+      </div>
+    </div>
+</div>
+
+<!-- Resident Details Modal -->
+<div id="residentModal" class="modal-overlay hidden">
+  <div class="modal-card" style="max-width: 480px;">
+    <div class="modal-header">
+      <h3 id="resModalTitle">🏢 Resident Details</h3>
+      <button class="close-modal-btn" id="closeResBtn">&times;</button>
+    </div>
+    <div class="modal-body" id="resModalBody">
+      <!-- Dynamic details go here -->
+    </div>
+  </div>
+</div>
+
+<?!= include('JavaScript'); ?>
+</body>
+</html>
