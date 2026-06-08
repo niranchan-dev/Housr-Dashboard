@@ -1,4 +1,4 @@
-import { getSheetsData, ensureSheet, appendRow } from "@/lib/googleSheets";
+import { getSheetsData, ensureSheet, appendRow } from "../../../../lib/googleSheets";
 
 const SHEETS = {
   EXTRACT:   'Extract',

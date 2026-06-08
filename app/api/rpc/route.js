@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../auth/[...nextauth]/route";
-import { getSheetsData, ensureSheet, appendRow, updateSheet, spreadsheetId } from "@/lib/googleSheets";
+import { getSheetsData, ensureSheet, appendRow, updateSheet, spreadsheetId } from "../../../lib/googleSheets";
 
 // Sheets naming convention
 const SHEETS = {
