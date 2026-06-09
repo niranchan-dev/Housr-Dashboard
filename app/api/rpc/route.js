@@ -1,5 +1,5 @@
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../auth/[...nextauth]/route";
+import { authOptions } from "../../../lib/auth";
 import { getSheetsData, ensureSheet, appendRow, updateSheet, spreadsheetId, ensureRequiredSheets as ensureRequiredSheetsLib } from "../../../lib/googleSheets";
 
 // Sheets naming convention
