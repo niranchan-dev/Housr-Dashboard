@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../auth/[...nextauth]/route";
-import { getSheetsData, ensureSheet, appendRow, updateSheet, spreadsheetId } from "../../../lib/googleSheets";
+import { getSheetsData, ensureSheet, appendRow, updateSheet, spreadsheetId, ensureRequiredSheets as ensureRequiredSheetsLib } from "../../../lib/googleSheets";
 
 // Sheets naming convention
 const SHEETS = {
@@ -147,9 +147,11 @@ function isJunkDashboardRow(propertyCell) {
 
 // Ensure database sheets exist
 async function ensureRequiredSheets() {
-  await ensureSheet(SHEETS.MAPPING, ['Metric', 'Sheet', 'Column', 'Type', 'Notes']);
-  await ensureSheet(SHEETS.AUDIT, ['Timestamp', 'Date', 'Email', 'Display Name']);
-  await ensureSheet(SHEETS.SNAPSHOTS, ['Date', 'Total Revenue', 'LS Revenue', 'SS Revenue', 'LS Occupancy %', 'L+S Occupancy %', 'Source']);
+  await ensureRequiredSheetsLib([
+    { name: SHEETS.MAPPING, headers: ['Metric', 'Sheet', 'Column', 'Type', 'Notes'] },
+    { name: SHEETS.AUDIT, headers: ['Timestamp', 'Date', 'Email', 'Display Name'] },
+    { name: SHEETS.SNAPSHOTS, headers: ['Date', 'Total Revenue', 'LS Revenue', 'SS Revenue', 'LS Occupancy %', 'L+S Occupancy %', 'Source'] }
+  ]);
 }
 
 // -------------------------------------------------------------
@@ -505,6 +507,10 @@ function buildFilterOptions(extract, shortSt, lsSales, dashRows) {
 // Core Actions Implementation
 // -------------------------------------------------------------
 
+// Simple in-memory cache for audit log debouncing (1 hour)
+const auditCache = new Map();
+let lastSnapshotDate = '';
+
 async function fetchDashboardBundle(email, isAdmin, force = false) {
   if (!force && cacheData && Date.now() < cacheExpiry) {
     const obj = { ...cacheData };
@@ -514,17 +520,35 @@ async function fetchDashboardBundle(email, isAdmin, force = false) {
     return obj;
   }
 
-  await ensureRequiredSheets();
-
-  // Unified batch read of all sheets in a single call
-  const rawData = await getSheetsData([
-    `${SHEETS.MAPPING}!A:E`,
-    `${SHEETS.EXTRACT}!A:CZ`,
-    `${SHEETS.SHORTSTAY}!A:Z`,
-    `${SHEETS.LSSALES}!A:EJ`,
-    `${SHEETS.DASHBOARD}!A:AC`,
-    `${SHEETS.SNAPSHOTS}!A:G`
-  ]);
+  let rawData;
+  try {
+    // Unified batch read of all sheets in a single call
+    rawData = await getSheetsData([
+      `${SHEETS.MAPPING}!A:E`,
+      `${SHEETS.EXTRACT}!A:CZ`,
+      `${SHEETS.SHORTSTAY}!A:Z`,
+      `${SHEETS.LSSALES}!A:EJ`,
+      `${SHEETS.DASHBOARD}!A:AC`,
+      `${SHEETS.SNAPSHOTS}!A:G`
+    ]);
+  } catch (error) {
+    const errorMsg = String(error.message || '').toLowerCase();
+    if (errorMsg.includes('not found') || errorMsg.includes('range') || error.status === 400) {
+      console.warn("Required sheet missing during read, running ensureRequiredSheets...");
+      await ensureRequiredSheets();
+      // Retry once
+      rawData = await getSheetsData([
+        `${SHEETS.MAPPING}!A:E`,
+        `${SHEETS.EXTRACT}!A:CZ`,
+        `${SHEETS.SHORTSTAY}!A:Z`,
+        `${SHEETS.LSSALES}!A:EJ`,
+        `${SHEETS.DASHBOARD}!A:AC`,
+        `${SHEETS.SNAPSHOTS}!A:G`
+      ]);
+    } else {
+      throw error;
+    }
+  }
 
   const mappingValues = rawData[`${SHEETS.MAPPING}!A:E`] || [];
   const extractValues = rawData[`${SHEETS.EXTRACT}!A:CZ`] || [];
@@ -609,9 +633,19 @@ async function fetchDashboardBundle(email, isAdmin, force = false) {
 async function writeDailySnapshot(email, mapping, extract, shortStay, dashRows, snapshots, source = 'manual') {
   const todayStr = formatDate(new Date(), 'yyyy-MM-dd');
 
-  // Check if today already has a snapshot
+  // Fast check: did we already verify/write the snapshot today?
+  if (lastSnapshotDate === todayStr && source === 'dashboard-load') {
+    return { written: false, reason: 'already-snapshotted-today', date: todayStr };
+  }
+
+  // Check if today already has a snapshot in the spreadsheets list
   const exists = snapshots.some(s => s.date === todayStr);
-  if (exists && source === 'dashboard-load') return { written: false, reason: 'already-snapshotted-today', date: todayStr };
+  if (exists) {
+    if (source === 'dashboard-load') {
+      lastSnapshotDate = todayStr;
+    }
+    return { written: false, reason: 'already-snapshotted-today', date: todayStr };
+  }
 
   let lsRev = 0, sellable = 0, occupied = 0;
   extract.rows.forEach(r => {
@@ -650,6 +684,10 @@ async function writeDailySnapshot(email, mapping, extract, shortStay, dashRows, 
     source
   ]);
 
+  if (source === 'dashboard-load') {
+    lastSnapshotDate = todayStr;
+  }
+
   return {
     written: true,
     date: todayStr,
@@ -658,14 +696,26 @@ async function writeDailySnapshot(email, mapping, extract, shortStay, dashRows, 
 }
 
 async function writeAuditAccess(email) {
+  const cacheKey = email || '(anonymous)';
+  const now = Date.now();
+  const cachedTime = auditCache.get(cacheKey);
+  
+  if (cachedTime && now - cachedTime < 3600 * 1000) {
+    // Debounce: already logged this user within the last hour
+    return;
+  }
+  
+  // Set cache timestamp
+  auditCache.set(cacheKey, now);
+
   const dateStr = formatDate(new Date(), 'yyyy-MM-dd');
-  const displayName = email === '(anonymous)' ? 'Anonymous'
-    : email.split('@')[0].replace(/[._\-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const displayName = cacheKey === '(anonymous)' ? 'Anonymous'
+    : cacheKey.split('@')[0].replace(/[._\-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
   await appendRow(SHEETS.AUDIT, [
     new Date().toISOString(),
     dateStr,
-    email,
+    cacheKey,
     displayName
   ]);
 }
